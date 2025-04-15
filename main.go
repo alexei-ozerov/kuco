@@ -62,7 +62,7 @@ func newModel() model {
 
 	// Setup list
 	currentList := list.New(namespaceItemList, itemDelegate{}, 0, 0)
-	currentList.Title = "Namespaces"
+	currentList.Title = "[KUCO] Namespaces"
 	currentList.Styles.Title = titleStyle
 	currentList.AdditionalFullHelpKeys = func() []key.Binding {
 		return []key.Binding{
@@ -306,9 +306,8 @@ func (m model) View() string {
 		content = m.currentLog
 	}
 
-	var textBlock string = style.Render(content)
+	textBlock := style.Render(content)
 	block := lipgloss.PlaceHorizontal(m.containerWidth, lipgloss.Center, textBlock)
-
 	view := lipgloss.JoinVertical(lipgloss.Top, appStyle.Render("\n"+m.displayList.View()), block)
 
 	return view
