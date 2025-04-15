@@ -74,6 +74,11 @@ func newModel() model {
 			listKeys.back,
 		}
 	}
+	currentList.AdditionalShortHelpKeys = func() []key.Binding {
+		return []key.Binding{
+			listKeys.selection,
+		}
+	}
 
 	// Setup Exec Input TextInput Model
 	ti := textinput.New()
@@ -144,7 +149,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case key.Matches(msg, m.keys.back):
 			if m.currentView > 0 {
 				if m.currentView >= 4 {
-					m.currentView = 2
+					m.currentView = 3
 					m.execInput.Reset()
 					m.execResult = ""
 					m.execError = ""
@@ -178,6 +183,18 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				if ok {
 					m.currentContainer = string(i)
 				}
+
+				m.execResult = ""
+				m.execError = ""
+				m.execInput.Reset()
+				m.execInput.SetValue("")
+				m.currentView = 4
+
+				return m, nil
+			} else if m.currentView == 5 {
+				m.currentView = 2 // Temporarily set view to Container while it loads
+				containerItemList := listToItemList(m.kubeContext, m.currentNamespace, m.currentView, m.currentPod, m.currentContainer)
+				m.displayList = updateDisplayList(m, containerItemList)
 
 				m.execResult = ""
 				m.execError = ""
@@ -229,6 +246,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 				if err != nil {
 					m.execError = fmt.Sprintf("Error occured while `exec`ing to the Pod %q, container %q, namespace %q, command %q. Error: %+v\n", podName, containerName, namespace, command, err)
+					output = m.execError
 				} else {
 					m.execResult = output
 				}
@@ -239,12 +257,17 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					execResultItemList = append(execResultItemList, item(listData))
 				}
 
+				if len(execResultItemList) > 0 {
+					execResultItemList = execResultItemList[:len(execResultItemList)-1]
+				}
+
 				m.displayList = updateDisplayList(m, execResultItemList)
 				m.currentView = 5
 			case 5:
-				m.currentView = 2
-				containerItemList := listToItemList(m.kubeContext, m.currentNamespace, m.currentView, m.currentPod, m.currentContainer)
-				m.displayList = updateDisplayList(m, containerItemList)
+				m.currentLog = string(i)
+				// m.currentView = 2
+				// containerItemList := listToItemList(m.kubeContext, m.currentNamespace, m.currentView, m.currentPod, m.currentContainer)
+				// m.displayList = updateDisplayList(m, containerItemList)
 			}
 
 			return m, nil
@@ -279,6 +302,8 @@ func (m model) View() string {
 		content = m.currentLog
 	} else if m.currentView == 4 {
 		content = m.execInput.View()
+	} else if m.currentView == 5 {
+		content = m.currentLog
 	}
 
 	var textBlock string = style.Render(content)

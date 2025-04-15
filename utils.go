@@ -25,12 +25,19 @@ func updateDisplayList(m model, itemList []list.Item) list.Model {
 	switch m.currentView {
 	case 0:
 		title = "Namespaces"
+		currentList.AdditionalShortHelpKeys = func() []key.Binding {
+			return []key.Binding{
+				listKeys.selection,
+			}
+		}
 	case 1:
 		title = "Pods"
 	case 2:
 		title = "Containers"
 		currentList.AdditionalShortHelpKeys = func() []key.Binding {
 			return []key.Binding{
+				listKeys.selection,
+				listKeys.back,
 				listKeys.exec,
 			}
 		}
@@ -38,7 +45,15 @@ func updateDisplayList(m model, itemList []list.Item) list.Model {
 		title = "Logs"
 		currentList.Help.ShowAll = false
 	case 4:
-		title = fmt.Sprintf("%s\nOutput (press 'enter' to return to Containers View", m.execInput.Value())
+		title = fmt.Sprintf("[Command Output]\n> %s\n(press 'enter' to view full selected line output)\n(press 'ctrl+h' to return to Containers View)\n(press 'e' to write another Exec Command)", m.execInput.Value())
+
+		currentList.AdditionalShortHelpKeys = func() []key.Binding {
+			return []key.Binding{
+				listKeys.selection,
+				listKeys.back,
+				listKeys.exec,
+			}
+		}
 	}
 
 	currentList.Title = title
