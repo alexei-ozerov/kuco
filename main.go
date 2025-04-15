@@ -3,10 +3,13 @@ package main
 import (
 	"fmt"
 	"os"
+	"strings"
 
 	"github.com/charmbracelet/bubbles/key"
 	"github.com/charmbracelet/bubbles/list"
+	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 	"k8s.io/client-go/kubernetes"
 )
 
@@ -36,6 +39,10 @@ type model struct {
 	podList       list.Model
 	containerList list.Model
 	logList       list.Model
+
+	execInput  textinput.Model
+	execError  string
+	execResult string
 }
 
 func newModel() model {
@@ -68,6 +75,13 @@ func newModel() model {
 		}
 	}
 
+	// Setup Exec Input TextInput Model
+	ti := textinput.New()
+	ti.Placeholder = ""
+	ti.Focus()
+	ti.CharLimit = 156
+	ti.Width = 20
+
 	return model{
 		displayList:      currentList,
 		keys:             listKeys,
@@ -78,6 +92,9 @@ func newModel() model {
 		currentPod:       "",
 		currentLog:       "",
 		currentNamespace: "",
+		execInput:        ti,
+		execError:        "",
+		execResult:       "",
 	}
 }
 
@@ -87,6 +104,7 @@ func (m model) Init() tea.Cmd {
 
 func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	var cmds []tea.Cmd
+	var cmd tea.Cmd
 
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
@@ -94,7 +112,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		width := msg.Width - h
 		height := msg.Height - v
 
-		m.displayList.SetSize(width, height)
+		m.displayList.SetSize(width, height-9)
 		m.containerWidth = width
 		m.containerHeight = height
 	case tea.KeyMsg:
@@ -125,6 +143,12 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		case key.Matches(msg, m.keys.back):
 			if m.currentView > 0 {
+				if m.currentView >= 4 {
+					m.currentView = 2
+					m.execInput.Reset()
+					m.execResult = ""
+					m.execError = ""
+				}
 				m.currentView -= 1
 			}
 
@@ -145,6 +169,23 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.currentView = 3 // switch to pod view
 				logItemList := listToItemList(m.kubeContext, m.currentNamespace, m.currentView, m.currentPod, m.currentContainer)
 				m.displayList = updateDisplayList(m, logItemList)
+			}
+
+		case key.Matches(msg, m.keys.exec):
+			if m.currentView == 2 {
+				// Get selected container
+				i, ok := m.displayList.SelectedItem().(item)
+				if ok {
+					m.currentContainer = string(i)
+				}
+
+				m.execResult = ""
+				m.execError = ""
+				m.execInput.Reset()
+				m.execInput.SetValue("")
+				m.currentView = 4
+
+				return m, nil
 			}
 
 		case key.Matches(msg, m.keys.selection):
@@ -172,6 +213,38 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.currentView = 3 // switch to log view
 				logItemList := listToItemList(m.kubeContext, m.currentNamespace, m.currentView, m.currentPod, m.currentContainer)
 				m.displayList = updateDisplayList(m, logItemList)
+			case 3:
+				m.currentLog = string(i)
+			case 4:
+				command := m.execInput.Value()
+
+				containerName := m.currentContainer
+				podName := m.currentPod
+				namespace := m.currentNamespace
+
+				output, stderr, err := ExecToPodThroughAPI(command, containerName, podName, namespace, nil)
+
+				if len(stderr) != 0 {
+					fmt.Println("STDERR:", stderr)
+				}
+				if err != nil {
+					m.execError = fmt.Sprintf("Error occured while `exec`ing to the Pod %q, container %q, namespace %q, command %q. Error: %+v\n", podName, containerName, namespace, command, err)
+				} else {
+					m.execResult = output
+				}
+
+				var execResultItemList []list.Item
+				execResultList := strings.Split(strings.ReplaceAll(output, "\r\n", "\n"), "\n")
+				for _, listData := range execResultList {
+					execResultItemList = append(execResultItemList, item(listData))
+				}
+
+				m.displayList = updateDisplayList(m, execResultItemList)
+				m.currentView = 5
+			case 5:
+				m.currentView = 2
+				containerItemList := listToItemList(m.kubeContext, m.currentNamespace, m.currentView, m.currentPod, m.currentContainer)
+				m.displayList = updateDisplayList(m, containerItemList)
 			}
 
 			return m, nil
@@ -179,16 +252,41 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	}
 
-	// This will also call our delegate's update function.
-	newListModel, cmd := m.displayList.Update(msg)
-	m.displayList = newListModel
-	cmds = append(cmds, cmd)
+	if m.currentView != 4 {
+		// This will also call our delegate's update function.
+		newListModel, cmd := m.displayList.Update(msg)
+		m.displayList = newListModel
+		cmds = append(cmds, cmd)
+	} else {
+		m.execInput, cmd = m.execInput.Update(msg)
+		cmds = append(cmds, cmd)
+	}
 
 	return m, tea.Batch(cmds...)
 }
 
 func (m model) View() string {
-	return appStyle.Render("\n" + m.displayList.View())
+	style := lipgloss.NewStyle().
+		Width(m.containerWidth).
+		Height(6).
+		Padding(1).
+		BorderStyle(lipgloss.RoundedBorder())
+
+	var content string
+	if m.currentView == 1 {
+		content = ""
+	} else if m.currentView == 3 {
+		content = m.currentLog
+	} else if m.currentView == 4 {
+		content = m.execInput.View()
+	}
+
+	var textBlock string = style.Render(content)
+	block := lipgloss.PlaceHorizontal(m.containerWidth, lipgloss.Center, textBlock)
+
+	view := lipgloss.JoinVertical(lipgloss.Top, appStyle.Render("\n"+m.displayList.View()), block)
+
+	return view
 }
 
 func main() {

@@ -9,6 +9,7 @@ type listKeyMap struct {
 	toggleHelpMenu   key.Binding
 	selection        key.Binding
 	back             key.Binding
+	exec             key.Binding
 }
 
 func newListKeyMap() *listKeyMap {
@@ -36,6 +37,10 @@ func newListKeyMap() *listKeyMap {
 		back: key.NewBinding(
 			key.WithKeys("ctrl+h"),
 			key.WithHelp("ctrl+h", "return to previous screen"),
+		),
+		exec: key.NewBinding(
+			key.WithKeys("e"),
+			key.WithHelp("e", "start shell session in container"),
 		),
 	}
 }
